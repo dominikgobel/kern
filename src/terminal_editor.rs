@@ -1,5 +1,5 @@
 use crate::shortcuts::{self, Action};
-use crate::syntax_cache::{SyntaxCache, style_to_crossterm};
+use crate::syntax_cache::{SyntaxCache, style_to_crossterm, ColorMode};
 use crate::ui_types::{EditorMode, ScreenSize, UiState, Viewport};
 use crate::{editor::Editor, file::write_file};
 
@@ -17,6 +17,7 @@ use std::{
 };
 
 use unicode_width::UnicodeWidthChar;
+use supports_color::Stream;
 
 const _UI_ROWS: u16 = 3;
 const THEME: &str = "base16-eighties.dark";
@@ -25,13 +26,14 @@ pub fn run(mut editor: Editor, filename: PathBuf) -> io::Result<()> {
     terminal::enable_raw_mode()?;
 
     let mut stdout = io::stdout();
+    let color_mode = detect_color_mode();
 
     if let Err(e) = execute!(stdout, EnterAlternateScreen, cursor::Hide) {
         let _ = terminal::disable_raw_mode();
         return Err(e);
     }
 
-    let result = event_loop(&mut editor, filename);
+    let result = event_loop(&mut editor, filename, &color_mode);
 
     let cleanup = execute!(stdout, cursor::Show, LeaveAlternateScreen);
     let raw = terminal::disable_raw_mode();
@@ -41,7 +43,7 @@ pub fn run(mut editor: Editor, filename: PathBuf) -> io::Result<()> {
     raw
 }
 
-fn event_loop(editor: &mut Editor, filename: PathBuf) -> io::Result<()> {
+fn event_loop(editor: &mut Editor, filename: PathBuf, color_mode: &ColorMode) -> io::Result<()> {
     // Der Dateipfad bleibt ein PathBuf.
     let mut path = filename.clone();
 
@@ -61,7 +63,7 @@ fn event_loop(editor: &mut Editor, filename: PathBuf) -> io::Result<()> {
 
     loop {
         if dirty {
-            render(editor, &filename, &ui, &mut viewport, &syntax)?;
+            render(editor, &filename, &ui, &mut viewport, &syntax, color_mode)?;
             dirty = false;
         }
 
@@ -244,6 +246,7 @@ fn render(
     ui: &UiState,
     viewport: &mut Viewport,
     syntax: &SyntaxCache,
+    color_mode: &ColorMode
 ) -> io::Result<()> {
     let (width, height) = terminal::size()?;
 
@@ -327,7 +330,7 @@ fn render(
 
         if let Some(spans) = spans {
             'spans: for span in spans {
-                let style = style_to_crossterm(span.style);
+                let style = style_to_crossterm(span.style, color_mode);
 
                 for ch in span.text.chars() {
                     let w = char_width(ch, cell);
@@ -474,4 +477,13 @@ fn draw_ui_line(
     )?;
 
     Ok(())
+}
+
+fn detect_color_mode() -> ColorMode {
+    match supports_color::on(Stream::Stdout) {
+        Some(c) if c.has_16m => ColorMode::Truecolor,
+        Some(c) if c.has_256 => ColorMode::Color256,
+        Some(c) if c.has_basic => ColorMode::Color16,
+        _ => ColorMode::Monochrome
+    }
 }

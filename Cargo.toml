@@ -13,6 +13,7 @@ self-replace = "1.5.0"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+supports-color = "3.0.2"
 syntect = "5.3.0"
 tar = "0.4.46"
 unicode-width = "0.2.2"

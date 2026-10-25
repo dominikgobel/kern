@@ -4,7 +4,13 @@ use syntect::{
     highlighting::{Color, FontStyle, Style, Theme, ThemeSet},
     parsing::{SyntaxReference, SyntaxSet},
 };
-
+use crossterm::style::Color as CColor;
+pub enum ColorMode {
+    Truecolor,
+    Color256,
+    Color16,
+    Monochrome,
+}
 #[derive(Clone, Debug)]
 pub struct StyledSpan {
     pub style: Style,
@@ -93,21 +99,53 @@ fn syntax_for_path<'a>(syntaxes: &'a SyntaxSet, path: &Path) -> &'a SyntaxRefere
         .unwrap_or_else(|| syntaxes.find_syntax_plain_text())
 }
 
-pub fn style_to_crossterm(style: Style) -> crossterm::style::ContentStyle {
+pub fn style_to_crossterm(style: Style, color_mode: &ColorMode) -> crossterm::style::ContentStyle {
     use crossterm::style::{Attribute, Color as CColor, ContentStyle};
-    let mut out = ContentStyle {
-        foreground_color: Some(CColor::Rgb {
-            r: style.foreground.r,
-            g: style.foreground.g,
-            b: style.foreground.b,
-        }),
-        background_color: Some(CColor::Rgb {
-            r: style.background.r,
-            g: style.background.g,
-            b: style.background.b,
-        }),
-        ..ContentStyle::default()
-    };
+    let mut out = ContentStyle::default();
+    match color_mode {
+        ColorMode::Truecolor => {
+            out.foreground_color = Some(CColor::Rgb {
+                r: style.foreground.r,
+                g: style.foreground.g,
+                b: style.foreground.b,
+            });
+
+            out.background_color = Some(CColor::Rgb {
+                r: style.background.r,
+                g: style.background.g,
+                b: style.background.b,
+            });
+        }
+        ColorMode::Color256 => {
+            out.foreground_color = Some(rgb_to_256(
+                style.foreground.r,
+                style.foreground.g,
+                style.foreground.b,
+            ));
+
+            out.background_color = Some(rgb_to_256(
+                style.background.r,
+                style.background.g,
+                style.background.b,
+            ));
+        }
+        ColorMode::Color16 => {
+            out.foreground_color = Some(rgb_to_16(
+                style.foreground.r,
+                style.foreground.g,
+                style.foreground.b,
+            ));
+
+            out.background_color = Some(rgb_to_16(
+                style.background.r,
+                style.background.g,
+                style.background.b,
+            ));
+        }
+        ColorMode::Monochrome => {
+            // nothing is needed, because no colors can be shown
+        }
+    }
     if style.font_style.contains(FontStyle::BOLD) {
         out.attributes.set(Attribute::Bold);
     }
@@ -118,4 +156,115 @@ pub fn style_to_crossterm(style: Style) -> crossterm::style::ContentStyle {
         out.attributes.set(Attribute::Underlined);
     }
     out
+}
+
+/// Konvertiert RGB in die nächstgelegene Farbe der xterm-256-Palette.
+fn rgb_to_256(r: u8, g: u8, b: u8) -> CColor {
+    let mut best_index = 0u8;
+    let mut best_distance = u32::MAX;
+
+    for index in 0u16..256 {
+        let (pr, pg, pb) = xterm_256_rgb(index as u8);
+
+        let dr = r as i32 - pr as i32;
+        let dg = g as i32 - pg as i32;
+        let db = b as i32 - pb as i32;
+
+        let distance = (dr * dr + dg * dg + db * db) as u32;
+
+        if distance < best_distance {
+            best_distance = distance;
+            best_index = index as u8;
+        }
+    }
+
+    CColor::AnsiValue(best_index)
+}
+
+/// Map RGB to xterm-256-pallete.
+fn xterm_256_rgb(index: u8) -> (u8, u8, u8) {
+    match index {
+        // Die ersten 16 ANSI-Farben
+        0..=15 => {
+            const COLORS: [(u8, u8, u8); 16] = [
+                (0, 0, 0),
+                (128, 0, 0),
+                (0, 128, 0),
+                (128, 128, 0),
+                (0, 0, 128),
+                (128, 0, 128),
+                (0, 128, 128),
+                (192, 192, 192),
+                (128, 128, 128),
+                (255, 0, 0),
+                (0, 255, 0),
+                (255, 255, 0),
+                (0, 0, 255),
+                (255, 0, 255),
+                (0, 255, 255),
+                (255, 255, 255),
+            ];
+
+            COLORS[index as usize]
+        }
+
+        // 6 × 6 × 6 RGB-Farbwürfel
+        16..=231 => {
+            const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+
+            let n = (index - 16) as usize;
+
+            (
+                LEVELS[n / 36],
+                LEVELS[(n / 6) % 6],
+                LEVELS[n % 6],
+            )
+        }
+
+        // 24 Graustufen
+        232..=255 => {
+            let gray = 8 + (index - 232) * 10;
+            (gray, gray, gray)
+        }
+    }
+}
+
+/// Map RGB to 16 ANSI-Colors
+fn rgb_to_16(r: u8, g: u8, b: u8) -> CColor {
+    let mut best_index = 0u8;
+    let mut best_distance = u32::MAX;
+
+    for index in 0u8..16 {
+        let (pr, pg, pb) = xterm_256_rgb(index);
+
+        let dr = r as i32 - pr as i32;
+        let dg = g as i32 - pg as i32;
+        let db = b as i32 - pb as i32;
+
+        let distance = (dr * dr + dg * dg + db * db) as u32;
+
+        if distance < best_distance {
+            best_distance = distance;
+            best_index = index;
+        }
+    }
+
+    match best_index {
+        0 => CColor::Black,
+        1 => CColor::DarkRed,
+        2 => CColor::DarkGreen,
+        3 => CColor::DarkYellow,
+        4 => CColor::DarkBlue,
+        5 => CColor::DarkMagenta,
+        6 => CColor::DarkCyan,
+        7 => CColor::Grey,
+        8 => CColor::DarkGrey,
+        9 => CColor::Red,
+        10 => CColor::Green,
+        11 => CColor::Yellow,
+        12 => CColor::Blue,
+        13 => CColor::Magenta,
+        14 => CColor::Cyan,
+        _ => CColor::White,
+    }
 }
