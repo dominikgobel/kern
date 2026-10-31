@@ -14,6 +14,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 - The command line interface (CLI) now uses `clap` as its argument parser.
 
+### Fixed
+- Opening a file that exists but cannot be read as text (not UTF-8, a directory, or no permission) now prints an error and exits instead of opening an empty buffer, which a save would have written over the file. A path that does not exist still opens as a new, empty file.
+
 ## [0.1.1] - 2026-10-24
 
 ### Changed

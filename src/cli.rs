@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use crate::commands;
 use crate::terminal_editor;
-use crate::{editor::editor_for_file, file::read_file};
+use crate::{editor::editor_for_file, file::read_file_for_editing};
 
 #[derive(Parser, Debug)]
 #[command(name = "kern", version, about = "A terminal text editor")]
@@ -37,7 +37,13 @@ impl Cli {
 fn process_kern_default_command(path: Option<PathBuf>) -> ExitCode {
     match path {
         Some(path) => {
-            let contents = read_file(&path).unwrap_or_default();
+            let contents = match read_file_for_editing(&path) {
+                Ok(contents) => contents,
+                Err(error) => {
+                    eprintln!("error: cannot open {}: {error}", path.display());
+                    return ExitCode::FAILURE;
+                }
+            };
             let editor = editor_for_file(&contents);
 
             match terminal_editor::run(editor, path) {
